@@ -141,10 +141,10 @@ function PhotoCapture({ label, photo, onCapture, required }) {
         display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
         transition: "all 0.2s", overflow: "hidden", position: "relative"
       }}>
-        {!photo && <div style={{ textAlign: "center", color: "#94a3b8" }}><div style={{ fontSize: 36 }}>📷</div><div style={{ fontSize: 12, marginTop: 4, fontFamily: "'Noto Sans KR', sans-serif" }}>터치하여 촬영</div></div>}
+        {!photo && <div style={{ textAlign: "center", color: "#94a3b8" }}><div style={{ fontSize: 36 }}>📷</div><div style={{ fontSize: 12, marginTop: 4, fontFamily: "'Noto Sans KR', sans-serif" }}>사진 선택 / 촬영</div></div>}
         {photo && <div style={{ position: "absolute", bottom: 6, right: 6, background: "rgba(0,0,0,0.5)", borderRadius: 20, padding: "4px 10px", fontSize: 11, color: "#fff", fontFamily: "'Noto Sans KR', sans-serif" }}>변경</div>}
       </div>
-      <input ref={inputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }}
         onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = ev => onCapture(ev.target.result); r.readAsDataURL(f); }}} />
     </div>
   );
@@ -308,20 +308,20 @@ function MemberNameInput({ value, onChange, onAdd }) {
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
           onKeyDown={e => { if (e.key === "Enter" && !composingRef.current) tryAdd(); }}
-          placeholder="이름 입력 후 추가 (한글 2~4자)"
+          placeholder="이름 (한글 2~4자)"
           maxLength={4}
           inputMode="text"
           style={{
-            flex: 1, padding: "12px 14px", borderRadius: 12,
+            flex: 1, minWidth: 0, padding: "12px 14px", borderRadius: 12,
             border: error ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
             fontSize: 15, fontFamily: "'Noto Sans KR', sans-serif", outline: "none",
-            background: error ? "#fef2f2" : "#fff"
+            boxSizing: "border-box", background: error ? "#fef2f2" : "#fff"
           }}
           onFocus={e => { if (!error) e.target.style.borderColor = "#22c55e"; }}
           onBlur={e => { if (!error) e.target.style.borderColor = "#cbd5e1"; }}
         />
         <button onClick={tryAdd} style={{
-          padding: "0 18px", borderRadius: 12, border: "none",
+          padding: "0 14px", borderRadius: 12, border: "none", flexShrink: 0,
           background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff",
           fontSize: 14, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: "pointer", whiteSpace: "nowrap"
         }}>+ 추가</button>
@@ -482,8 +482,8 @@ function AdminPanel({ onClose, departments, setDepartments, submissions1, submis
         {tab === "dept" && (
           <div style={{ animation: "fadeUp 0.3s ease" }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <input value={newDept} onChange={e => setNewDept(e.target.value)} onKeyDown={e => e.key === "Enter" && !saving && addDept()} placeholder="부서명 입력" disabled={saving} style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "1.5px solid #cbd5e1", fontSize: 15, fontFamily: "'Noto Sans KR', sans-serif", outline: "none", background: "#fff" }} />
-              <button onClick={addDept} disabled={saving} style={{ padding: "0 20px", borderRadius: 12, border: "none", background: saving ? "#94a3b8" : "#1e293b", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: saving ? "wait" : "pointer", whiteSpace: "nowrap" }}>{saving ? "저장중..." : "+ 추가"}</button>
+              <input value={newDept} onChange={e => setNewDept(e.target.value)} onKeyDown={e => e.key === "Enter" && !saving && addDept()} placeholder="부서명 입력" disabled={saving} style={{ flex: 1, minWidth: 0, padding: "12px 14px", borderRadius: 12, border: "1.5px solid #cbd5e1", fontSize: 15, fontFamily: "'Noto Sans KR', sans-serif", outline: "none", boxSizing: "border-box", background: "#fff" }} />
+              <button onClick={addDept} disabled={saving} style={{ padding: "0 14px", borderRadius: 12, border: "none", flexShrink: 0, background: saving ? "#94a3b8" : "#1e293b", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: saving ? "wait" : "pointer", whiteSpace: "nowrap" }}>{saving ? "저장중..." : "+ 추가"}</button>
             </div>
             {departments.length === 0 && <p style={{ fontFamily: "'Noto Sans KR', sans-serif", fontSize: 14, color: "#94a3b8", textAlign: "center", padding: 32 }}>등록된 부서가 없습니다</p>}
             {departments.map((d, i) => (
