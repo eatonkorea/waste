@@ -94,6 +94,15 @@ async function loadDepartmentsFromSheets() {
   } catch (e) { console.error("부서 로드 오류:", e); return null; }
 }
 
+async function loadSubmissionsFromSheets(eventNum) {
+  if (!APPS_SCRIPT_URL) return null;
+  try {
+    const res = await fetch(APPS_SCRIPT_URL + "?action=loadEvent" + eventNum);
+    const data = await res.json();
+    return data.success ? data.submissions : null;
+  } catch (e) { console.error("목록 로드 오류:", e); return null; }
+}
+
 // Resize photo to reduce upload size
 function resizePhoto(dataUrl, maxWidth) {
   return new Promise((resolve) => {
@@ -393,7 +402,7 @@ function AdminPanel({ onClose, departments, setDepartments, submissions1, submis
             <InfoRow label="이름" value={detailItem.name} />
             <InfoRow label="장소" value={detailItem.place} />
             <InfoRow label="내용" value={detailItem.content} />
-            {detailItem.photo && <img src={detailItem.photo} alt="" onClick={() => setLightboxSrc(detailItem.photo)} style={{ width: "100%", borderRadius: 12, marginTop: 8, cursor: "zoom-in" }} />}
+            {(detailItem.photo || detailItem.photoUrl) && <img src={detailItem.photo || detailItem.photoUrl} alt="" onClick={() => setLightboxSrc(detailItem.photo || detailItem.photoUrl)} style={{ width: "100%", borderRadius: 12, marginTop: 8, cursor: "zoom-in" }} />}
           </>) : (<>
             <InfoRow label="부서" value={detailItem.dept} />
             <InfoRow label="부서원" value={detailItem.members?.join(", ")} />
@@ -401,16 +410,16 @@ function AdminPanel({ onClose, departments, setDepartments, submissions1, submis
             <InfoRow label="개선 전" value={detailItem.beforeContent} />
             <InfoRow label="개선 후" value={detailItem.afterContent} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              {detailItem.beforePhoto && (
-                <div style={{ flex: 1, cursor: "zoom-in" }} onClick={() => setLightboxSrc(detailItem.beforePhoto)}>
+              {(detailItem.beforePhoto || detailItem.beforePhotoUrl) && (
+                <div style={{ flex: 1, cursor: "zoom-in" }} onClick={() => setLightboxSrc(detailItem.beforePhoto || detailItem.beforePhotoUrl)}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 4, fontFamily: "'Noto Sans KR', sans-serif" }}>개선 전</div>
-                  <img src={detailItem.beforePhoto} alt="전" style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 10, display: "block" }} />
+                  <img src={detailItem.beforePhoto || detailItem.beforePhotoUrl} alt="전" style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 10, display: "block" }} />
                 </div>
               )}
-              {detailItem.afterPhoto && (
-                <div style={{ flex: 1, cursor: "zoom-in" }} onClick={() => setLightboxSrc(detailItem.afterPhoto)}>
+              {(detailItem.afterPhoto || detailItem.afterPhotoUrl) && (
+                <div style={{ flex: 1, cursor: "zoom-in" }} onClick={() => setLightboxSrc(detailItem.afterPhoto || detailItem.afterPhotoUrl)}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 4, fontFamily: "'Noto Sans KR', sans-serif" }}>개선 후</div>
-                  <img src={detailItem.afterPhoto} alt="후" style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 10, display: "block" }} />
+                  <img src={detailItem.afterPhoto || detailItem.afterPhotoUrl} alt="후" style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 10, display: "block" }} />
                 </div>
               )}
             </div>
@@ -542,18 +551,16 @@ function App() {
 
   useEffect(() => {
     (async () => {
-      // Load from localStorage first (fast)
-      const d = await loadData("departments", []);
-      const s1 = await loadData("submissions1", []);
-      const s2 = await loadData("submissions2", []);
-      setDepartments(d); setSubmissions1(s1); setSubmissions2(s2);
       setLoaded(true);
-      // Then sync departments from Google Sheets (if connected)
-      const sheetDepts = await loadDepartmentsFromSheets();
-      if (sheetDepts && sheetDepts.length > 0) {
-        setDepartments(sheetDepts);
-        await saveData("departments", sheetDepts);
-      }
+      // Load everything from Google Sheets
+      const [sheetDepts, sheetS1, sheetS2] = await Promise.all([
+        loadDepartmentsFromSheets(),
+        loadSubmissionsFromSheets(1),
+        loadSubmissionsFromSheets(2)
+      ]);
+      if (sheetDepts) setDepartments(sheetDepts);
+      if (sheetS1) setSubmissions1(sheetS1);
+      if (sheetS2) setSubmissions2(sheetS2);
     })();
   }, []);
 
@@ -580,16 +587,9 @@ function App() {
         wasteId: selectedWaste.id, dept: dept1, name: name1,
         place: place1, content: content1, photo: resizedPhoto
       });
-      // Save to localStorage
-      const entry = {
-        wasteId: selectedWaste.id, dept: dept1, name: name1, place: place1,
-        content: content1, photo: photo1,
-        date: new Date().toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
-        synced: !!sheetsResult?.success
-      };
-      const next = [...submissions1, entry];
-      setSubmissions1(next);
-      await saveData("submissions1", next);
+      // Reload from Sheets to keep in sync
+      const fresh = await loadSubmissionsFromSheets(1);
+      if (fresh) setSubmissions1(fresh);
       setScreen("success");
     } catch (e) {
       setSubmitError1("제출 중 오류가 발생했습니다");
@@ -619,16 +619,9 @@ function App() {
         place: place2, beforeContent, afterContent,
         beforePhoto: resizedBefore, afterPhoto: resizedAfter
       });
-      // Save to localStorage
-      const entry = {
-        wasteId: selectedWaste.id, dept: dept2, members: [...members], place: place2,
-        beforePhoto, afterPhoto, beforeContent, afterContent,
-        date: new Date().toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
-        synced: !!sheetsResult?.success
-      };
-      const next = [...submissions2, entry];
-      setSubmissions2(next);
-      await saveData("submissions2", next);
+      // Reload from Sheets to keep in sync
+      const fresh = await loadSubmissionsFromSheets(2);
+      if (fresh) setSubmissions2(fresh);
       setScreen("success");
     } catch (e) {
       setSubmitError2("제출 중 오류가 발생했습니다");
@@ -639,7 +632,20 @@ function App() {
 
   const goToWastes = (type) => { setEventType(type); setScreen("wastes"); };
   const selectWaste = (w) => { setSelectedWaste(w); setScreen(eventType === 1 ? "form1" : "form2"); };
-  const tryAdmin = () => { if (pwInput === ADMIN_PW) { setPwInput(""); setPwError(false); setShowPwModal(false); setScreen("admin"); } else { setPwError(true); }};
+  const tryAdmin = async () => {
+    if (pwInput === ADMIN_PW) {
+      setPwInput(""); setPwError(false); setShowPwModal(false); setScreen("admin");
+      // Refresh all data from Sheets
+      const [d, s1, s2] = await Promise.all([
+        loadDepartmentsFromSheets(),
+        loadSubmissionsFromSheets(1),
+        loadSubmissionsFromSheets(2)
+      ]);
+      if (d) setDepartments(d);
+      if (s1) setSubmissions1(s1);
+      if (s2) setSubmissions2(s2);
+    } else { setPwError(true); }
+  };
 
   const headerStyle = { position: "sticky", top: 0, zIndex: 10, background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)", padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid #e2e8f0" };
   const containerStyle = { maxWidth: 480, margin: "0 auto", minHeight: "100vh", background: "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)", position: "relative", overflow: "hidden" };
