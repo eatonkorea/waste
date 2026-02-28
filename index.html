@@ -79,27 +79,35 @@ async function postToSheets(payload) {
     const res = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      redirect: "follow"
     });
-    return await res.json();
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return { success: false, raw: text }; }
   } catch (e) { console.error("Google Sheets 전송 오류:", e); return null; }
 }
 
 async function loadDepartmentsFromSheets() {
   if (!APPS_SCRIPT_URL) return null;
   try {
-    const res = await fetch(APPS_SCRIPT_URL + "?action=loadDepartments");
-    const data = await res.json();
-    return data.success ? data.departments : null;
+    const res = await fetch(APPS_SCRIPT_URL + "?action=loadDepartments", { redirect: "follow" });
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      return data.success ? data.departments : null;
+    } catch { return null; }
   } catch (e) { console.error("부서 로드 오류:", e); return null; }
 }
 
 async function loadSubmissionsFromSheets(eventNum) {
   if (!APPS_SCRIPT_URL) return null;
   try {
-    const res = await fetch(APPS_SCRIPT_URL + "?action=loadEvent" + eventNum);
-    const data = await res.json();
-    return data.success ? data.submissions : null;
+    const res = await fetch(APPS_SCRIPT_URL + "?action=loadEvent" + eventNum, { redirect: "follow" });
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      return data.success ? data.submissions : null;
+    } catch { return null; }
   } catch (e) { console.error("목록 로드 오류:", e); return null; }
 }
 
@@ -341,15 +349,35 @@ function PhotoLightbox({ src, alt, onClose }) {
 }
 
 // ==================== ADMIN PANEL ====================
-function AdminPanel({ onClose, departments, setDepartments, submissions1, submissions2 }) {
+function AdminPanel({ onClose, departments, setDepartments, submissions1, submissions2, onRefresh }) {
   const [tab, setTab] = useState("dept");
   const [newDept, setNewDept] = useState("");
   const [detailItem, setDetailItem] = useState(null);
   const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const saveDepts = async (d) => { setDepartments(d); await saveData("departments", d); postToSheets({ action: "saveDepartments", departments: d }); };
+  const saveDepts = async (d) => {
+    setSaving(true);
+    setDepartments(d);
+    try {
+      const result = await postToSheets({ action: "saveDepartments", departments: d });
+      if (result?.success) {
+        const fresh = await loadDepartmentsFromSheets();
+        if (fresh) setDepartments(fresh);
+      }
+    } catch(e) { console.error(e); }
+    await saveData("departments", d);
+    setSaving(false);
+  };
   const addDept = async () => { if (newDept.trim() && !departments.includes(newDept.trim())) { await saveDepts([...departments, newDept.trim()]); setNewDept(""); }};
   const removeDept = async (i) => { await saveDepts(departments.filter((_, idx) => idx !== i)); };
+
+  const doRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
 
   const wasteName = (id) => wastes.find(w => w.id === id)?.name || "?";
   const countBy = (arr, key) => { const m = {}; arr.forEach(x => { const k = x[key] || "미지정"; m[k] = (m[k]||0) + 1; }); return Object.entries(m).sort((a,b) => b[1] - a[1]); };
@@ -434,9 +462,16 @@ function AdminPanel({ onClose, departments, setDepartments, submissions1, submis
       <div style={{ position: "sticky", top: 0, zIndex: 10, background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)", padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid #e2e8f0" }}>
         <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: "4px 8px", borderRadius: 8, display: "flex", alignItems: "center" }}>←</button>
         <span style={{ fontFamily: "'Noto Sans KR', sans-serif", fontWeight: 700, fontSize: 16, color: "#1e293b" }}>⚙️ 관리자 설정</span>
-        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, fontFamily: "'Noto Sans KR', sans-serif", padding: "4px 10px", borderRadius: 20, background: APPS_SCRIPT_URL ? "#dcfce7" : "#fef2f2", color: APPS_SCRIPT_URL ? "#16a34a" : "#dc2626" }}>
-          {APPS_SCRIPT_URL ? "📊 시트 연결됨" : "⚠️ 시트 미연결"}
-        </span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={doRefresh} disabled={refreshing} style={{
+            background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 12px",
+            fontSize: 12, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif",
+            cursor: refreshing ? "wait" : "pointer", color: "#475569"
+          }}>{refreshing ? "🔄 동기화중..." : "🔄 새로고침"}</button>
+          <span style={{ fontSize: 11, fontWeight: 600, fontFamily: "'Noto Sans KR', sans-serif", padding: "4px 10px", borderRadius: 20, background: APPS_SCRIPT_URL ? "#dcfce7" : "#fef2f2", color: APPS_SCRIPT_URL ? "#16a34a" : "#dc2626" }}>
+            {APPS_SCRIPT_URL ? "📊 연결됨" : "⚠️ 미연결"}
+          </span>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 6, padding: "16px 16px 0" }}>
         {tabBtn("dept", "부서 관리")}
@@ -447,14 +482,14 @@ function AdminPanel({ onClose, departments, setDepartments, submissions1, submis
         {tab === "dept" && (
           <div style={{ animation: "fadeUp 0.3s ease" }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <input value={newDept} onChange={e => setNewDept(e.target.value)} onKeyDown={e => e.key === "Enter" && addDept()} placeholder="부서명 입력" style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "1.5px solid #cbd5e1", fontSize: 15, fontFamily: "'Noto Sans KR', sans-serif", outline: "none", background: "#fff" }} />
-              <button onClick={addDept} style={{ padding: "0 20px", borderRadius: 12, border: "none", background: "#1e293b", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>+ 추가</button>
+              <input value={newDept} onChange={e => setNewDept(e.target.value)} onKeyDown={e => e.key === "Enter" && !saving && addDept()} placeholder="부서명 입력" disabled={saving} style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "1.5px solid #cbd5e1", fontSize: 15, fontFamily: "'Noto Sans KR', sans-serif", outline: "none", background: "#fff" }} />
+              <button onClick={addDept} disabled={saving} style={{ padding: "0 20px", borderRadius: 12, border: "none", background: saving ? "#94a3b8" : "#1e293b", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: saving ? "wait" : "pointer", whiteSpace: "nowrap" }}>{saving ? "저장중..." : "+ 추가"}</button>
             </div>
             {departments.length === 0 && <p style={{ fontFamily: "'Noto Sans KR', sans-serif", fontSize: 14, color: "#94a3b8", textAlign: "center", padding: 32 }}>등록된 부서가 없습니다</p>}
             {departments.map((d, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#fff", borderRadius: 12, marginBottom: 8, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                 <span style={{ fontFamily: "'Noto Sans KR', sans-serif", fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{d}</span>
-                <button onClick={() => removeDept(i)} style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 12px", color: "#dc2626", fontSize: 12, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: "pointer" }}>삭제</button>
+                <button onClick={() => removeDept(i)} disabled={saving} style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 12px", color: "#dc2626", fontSize: 12, fontWeight: 700, fontFamily: "'Noto Sans KR', sans-serif", cursor: saving ? "wait" : "pointer", opacity: saving ? 0.5 : 1 }}>삭제</button>
               </div>
             ))}
           </div>
@@ -551,16 +586,25 @@ function App() {
 
   useEffect(() => {
     (async () => {
+      // Load from localStorage first (instant)
+      const localDepts = await loadData("departments", []);
+      const localS1 = await loadData("submissions1", []);
+      const localS2 = await loadData("submissions2", []);
+      if (localDepts.length) setDepartments(localDepts);
+      if (localS1.length) setSubmissions1(localS1);
+      if (localS2.length) setSubmissions2(localS2);
       setLoaded(true);
-      // Load everything from Google Sheets
-      const [sheetDepts, sheetS1, sheetS2] = await Promise.all([
-        loadDepartmentsFromSheets(),
-        loadSubmissionsFromSheets(1),
-        loadSubmissionsFromSheets(2)
-      ]);
-      if (sheetDepts) setDepartments(sheetDepts);
-      if (sheetS1) setSubmissions1(sheetS1);
-      if (sheetS2) setSubmissions2(sheetS2);
+      // Then sync from Google Sheets (overrides local)
+      try {
+        const [sheetDepts, sheetS1, sheetS2] = await Promise.all([
+          loadDepartmentsFromSheets(),
+          loadSubmissionsFromSheets(1),
+          loadSubmissionsFromSheets(2)
+        ]);
+        if (sheetDepts) { setDepartments(sheetDepts); await saveData("departments", sheetDepts); }
+        if (sheetS1) setSubmissions1(sheetS1);
+        if (sheetS2) setSubmissions2(sheetS2);
+      } catch (e) { console.error("Sheets 동기화 실패:", e); }
     })();
   }, []);
 
@@ -630,20 +674,25 @@ function App() {
     }
   };
 
-  const goToWastes = (type) => { setEventType(type); setScreen("wastes"); };
-  const selectWaste = (w) => { setSelectedWaste(w); setScreen(eventType === 1 ? "form1" : "form2"); };
-  const tryAdmin = async () => {
-    if (pwInput === ADMIN_PW) {
-      setPwInput(""); setPwError(false); setShowPwModal(false); setScreen("admin");
-      // Refresh all data from Sheets
+  const refreshAllData = async () => {
+    try {
       const [d, s1, s2] = await Promise.all([
         loadDepartmentsFromSheets(),
         loadSubmissionsFromSheets(1),
         loadSubmissionsFromSheets(2)
       ]);
-      if (d) setDepartments(d);
+      if (d) { setDepartments(d); await saveData("departments", d); }
       if (s1) setSubmissions1(s1);
       if (s2) setSubmissions2(s2);
+    } catch(e) { console.error("동기화 오류:", e); }
+  };
+
+  const goToWastes = (type) => { setEventType(type); setScreen("wastes"); };
+  const selectWaste = (w) => { setSelectedWaste(w); setScreen(eventType === 1 ? "form1" : "form2"); };
+  const tryAdmin = async () => {
+    if (pwInput === ADMIN_PW) {
+      setPwInput(""); setPwError(false); setShowPwModal(false); setScreen("admin");
+      await refreshAllData();
     } else { setPwError(true); }
   };
 
@@ -723,7 +772,7 @@ function App() {
     return (
       <div style={containerStyle}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800;900&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; } body { margin: 0; } @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-        <AdminPanel onClose={() => setScreen("home")} departments={departments} setDepartments={setDepartments} submissions1={submissions1} submissions2={submissions2} />
+        <AdminPanel onClose={() => setScreen("home")} departments={departments} setDepartments={setDepartments} submissions1={submissions1} submissions2={submissions2} onRefresh={refreshAllData} />
       </div>
     );
   }
